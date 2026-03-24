@@ -754,10 +754,15 @@
         let myNick = "";
         let isHost = false;
         let fullMyId = "";
-        let hostPeerId = ""; // 房主真正的 PeerID
-        let connections = {}; // { peerId: { conn, nick, color } }
-        let mapData = Array(10).fill().map(() => Array(4).fill().map(() => ({ v: 0, owner: null })));
+        let hostPeerId = ""; 
+        let connections = {}; // { peerId: { conn } }
         
+        // 核心架構：8 個槽位的全量狀態
+        let gameState = {
+            slots: Array(8).fill(null) // 槽位對象: { index, nick, color, peerId, isHost, connected, passMarkers: [], deadEndMarkers: [] }
+        };
+        
+        let mySlotIndex = -1; // 自己在 gameState.slots 中的索引
         let myColor = "";
         const PRESET_COLORS = [
             'hsl(210, 80%, 45%)',   // 深藍
@@ -802,12 +807,9 @@
         };
 
         const getNickColor = (nick) => {
-            // 首先查找房間成員列表中的顏色
-            if (nick === myNick) return myColor;
-            const user = Object.values(connections).find(c => c.nick === nick);
-            if (user && user.color) return user.color;
+            const slot = gameState.slots.find(s => s && s.nick === nick);
+            if (slot && slot.color) return slot.color;
             
-            // 後備方案：維持原本邏輯
             let hash = 0;
             for (let i = 0; i < nick.length; i++) {
                 hash = nick.charCodeAt(i) + ((hash << 5) - hash);
@@ -850,7 +852,7 @@
             initColorPicker();
 
             log(`暱稱已設定為: ${myNick}`, "success");
-            refreshParticipantList();
+            refreshUI();
 
             if (window.documentPictureInPicture && !pipWindow) {
                 getDoc().getElementById('pip-btn').style.display = 'inline-block';
@@ -876,8 +878,7 @@
             if (myColor === c) return;
             
             // 檢查是否與房內其他成員重複
-            const users = getFullNickList();
-            const isDup = users.some(u => u.nick !== myNick && u.color === c);
+            const isDup = gameState.slots.some(s => s && s.nick !== myNick && s.color === c);
             if (isDup) {
                 alert("該顏色已被房內其他隊友使用，請選擇其他顏色。");
                 return;
@@ -885,16 +886,10 @@
 
             myColor = c;
             initColorPicker();
-            refreshParticipantList();
             
-            // 更新地圖上自己的標記顏色
-            for (let f = 0; f < 10; f++) for (let d = 0; d < 4; d++) {
-                if (mapData[f][d].owner === myNick) updateDoorUI(f, d);
-            }
-
-            // 同步給其他人
-            const msg = { type: 'COLOR_CHANGE', nick: myNick, color: c };
-            if (isHost) broadcast(msg);
+            // 下面改為請求房主更新狀態
+            const msg = { type: 'CMD_COLOR', color: c, index: mySlotIndex };
+            if (isHost) handleCommand(msg);
             else syncMsg(msg);
             log("變更標記顏色", "info");
         }
@@ -923,8 +918,9 @@
             fullMyId = "";
             hostPeerId = "";
             connections = {};
-            clearLocal();
-
+            gameState.slots = Array(8).fill(null);
+            mySlotIndex = -1;
+            
             // 恢復 UI 狀態
             getDoc().getElementById('btn-host').disabled = false;
             getDoc().getElementById('btn-join').disabled = false;
@@ -939,6 +935,10 @@
             getDoc().getElementById('btn-reset-all').style.display = "none";
             getDoc().getElementById('participant-list').innerHTML = "";
             getDoc().getElementById('member-title').innerText = "👥 房間成員 (0/8)";
+            
+            // 清空地圖 UI
+            for (let f = 0; f < 10; f++) for (let d = 0; d < 4; d++) updateDoorUI(f, d);
+            
             log("連線已中斷。", "warn");
         }
 
@@ -991,11 +991,22 @@
         function startHost() {
             initPeer(() => {
                 isHost = true;
+                mySlotIndex = 0;
+                gameState.slots[0] = {
+                    index: 0,
+                    nick: myNick,
+                    color: myColor,
+                    peerId: fullMyId,
+                    isHost: true,
+                    connected: true,
+                    passMarkers: [],
+                    deadEndMarkers: []
+                };
+
                 getDoc().getElementById('btn-copy').style.display = "inline-flex";
                 getDoc().getElementById('btn-leave').style.display = "inline-flex";
                 getDoc().getElementById('btn-reset-all').style.display = "inline-flex";
                 
-                // 禁用房間設定
                 getDoc().getElementById('btn-host').disabled = true;
                 getDoc().getElementById('btn-join').disabled = true;
                 getDoc().getElementById('join-id').disabled = true;
@@ -1003,10 +1014,7 @@
                 window.location.hash = fullMyId;
                 hostPeerId = fullMyId;
                 log(`已建立房間。房號: ${fullMyId}`, "success");
-                refreshParticipantList();
-                // 自動點擊一次清空標記以初始化視窗物件與狀態
-                // resetAll();
-                document.getElementById("btn-reset-all").click();
+                refreshUI();
             });
         }
 
@@ -1053,14 +1061,24 @@
             });
 
             conn.on('close', () => {
-                const user = connections[conn.peer];
-                if (user) {
-                    log(`成員離開: ${user.nick}`, "warn");
-                    removeUserMarkers(user.nick);
-                    delete connections[conn.peer];
-                    refreshParticipantList();
-                    if (isHost) {
-                        broadcast({ type: 'NICK_LIST', users: getFullNickList() });
+                if (isHost) {
+                    // 房主檢測到斷線，更新槽位狀態
+                    const slot = gameState.slots.find(s => s && s.peerId === conn.peer);
+                    if (slot) {
+                        slot.connected = false;
+                        log(`成員離線: ${slot.nick}`, "warn");
+                        // 移除標記（依照需求，或者保留）
+                        slot.passMarkers = [];
+                        slot.deadEndMarkers = [];
+                        delete connections[conn.peer];
+                        broadcastState();
+                        refreshUI();
+                    }
+                } else {
+                    // 成員檢測到房主斷線
+                    if (conn.peer === hostPeerId) {
+                        log("房主已離開。", "error");
+                        leaveRoom();
                     }
                 }
             });
@@ -1070,124 +1088,179 @@
         }
 
         function handleP2PMessage(conn, data) {
-            // 所有功能點擊與訊息處理皆有註解方便維護
             if (data.type === 'JOIN') {
-                // 房主收到加入申請
                 if (!isHost) return;
                 
-                // 1. 限制房間成員最多八人
-                const currentCount = Object.keys(connections).length + 1; // +1 是房主自己
-                if (currentCount >= 8) {
-                    conn.send({ type: 'REJECT', reason: "房間已滿 (上限 8 人)，無法加入。" });
+                // 1. 檢查槽位是否已滿
+                const freeIndex = gameState.slots.findIndex(s => s === null || !s.connected);
+                if (freeIndex === -1) {
+                    conn.send({ type: 'REJECT', reason: "房間已滿 (上限 8 人)。" });
                     setTimeout(() => conn.close(), 500);
                     return;
                 }
 
                 // 2. 暱稱重複檢查
-                const isDup = Object.values(connections).some(v => v.nick === data.nick) || myNick === data.nick;
-                if (isDup) {
+                if (gameState.slots.some(s => s && s.nick === data.nick)) {
                     conn.send({ type: 'REJECT', reason: `暱稱「${data.nick}」已有人使用。` });
                     setTimeout(() => conn.close(), 500);
                     return;
                 }
 
-                // 3. 顏色重複檢查
-                const targetColor = data.color || PRESET_COLORS[0];
-                const isColorDup = Object.values(connections).some(v => v.color === targetColor) || myColor === targetColor;
-                let assignedColor = targetColor;
-                if (isColorDup) {
-                    // 若重複則自動分配一個不重複的顏色
-                    const usedColors = [myColor, ...Object.values(connections).map(c => c.color)];
-                    assignedColor = PRESET_COLORS.find(c => !usedColors.includes(c)) || targetColor;
+                // 3. 顏色檢查與分配
+                let assignedColor = data.color;
+                if (gameState.slots.some(s => s && s.color === assignedColor)) {
+                    assignedColor = PRESET_COLORS.find(c => !gameState.slots.some(s => s && s.color === c)) || assignedColor;
                 }
 
-                connections[conn.peer] = { conn, nick: data.nick, color: assignedColor };
-                log(`歡迎成員: ${data.nick}`, "success");
+                // 4. 寫入槽位
+                gameState.slots[freeIndex] = {
+                    index: freeIndex,
+                    nick: data.nick,
+                    color: assignedColor,
+                    peerId: conn.peer,
+                    isHost: false,
+                    connected: true,
+                    passMarkers: [],
+                    deadEndMarkers: []
+                };
                 
-                // 廣播最新成員名單給所有人
-                const fullList = getFullNickList();
-                broadcast({ type: 'NICK_LIST', users: fullList });
+                connections[conn.peer] = { conn };
+                log(`歡迎成員: ${data.nick} (進入槽位 ${freeIndex + 1})`, "success");
                 
-                // 回傳歡迎訊息給新成員，附帶地圖狀態與名單
-                const currentState = JSON.parse(JSON.stringify(mapData));
-                conn.send({ type: 'WELCOME', state: currentState, users: fullList });
-                refreshParticipantList();
+                broadcastState();
+                refreshUI();
 
-            } else if (data.type === 'WELCOME') {
-                // 成員成功加入房間
+            } else if (data.type === 'STATE_SYNC') {
+                // 收到房主廣播的全量狀態
+                gameState = data.state;
                 setLoading(false);
-                isHost = false;
-                connections[conn.peer] = { conn, nick: "房主", color: data.users.find(u => u.isHost).color };
-                mapData = JSON.parse(JSON.stringify(data.state));
-                for (let f = 0; f < 10; f++) for (let d = 0; d < 4; d++) updateDoorUI(f, d);
-                log(`進入房間成功！`, "success");
-                getDoc().getElementById('btn-leave').style.display = "inline-flex";
-                getDoc().getElementById('join-id').value = "";
-                history.replaceState(null, document.title, window.location.pathname);
-                updateParticipantListFromWelcome(data.users);
+                
+                // 找出自己的索引
+                mySlotIndex = gameState.slots.findIndex(s => s && s.peerId === fullMyId);
+                if (mySlotIndex !== -1) {
+                    myNick = gameState.slots[mySlotIndex].nick;
+                    myColor = gameState.slots[mySlotIndex].color;
+                    initColorPicker(); // 更新顏色選取器的 UI 狀態
+                }
 
-            } else if (data.type === 'NICK_LIST') {
-                // 收到同步的名單更新
-                updateParticipantListFromWelcome(data.users);
+                if (!isHost) {
+                    hostPeerId = gameState.slots[0].peerId;
+                    if (!connections[hostPeerId]) {
+                        connections[hostPeerId] = { conn }; // 確保成員端存有房主連線引用
+                    }
+                }
+
+                refreshUI();
 
             } else if (data.type === 'REJECT') {
-                // 被房主拒絕加入 (滿人或暱稱重複)
                 setLoading(false);
                 alert(data.reason);
                 conn.close();
 
-            } else if (data.type === 'SYNC') {
-                // 同步格子標記狀態
-                mapData[data.f][data.d].v = data.v;
-                mapData[data.f][data.d].owner = data.owner;
-                if (data.v === 1) {
-                    // 若為正確軌跡，自動清除同一層舊的標記
-                    for (let d = 0; d < 4; d++) {
-                        if (d !== data.d && mapData[data.f][d].owner === data.owner) {
-                            mapData[data.f][d].v = 0;
-                            mapData[data.f][d].owner = null;
-                            updateDoorUI(data.f, d);
-                        }
-                    }
-                }
-                updateDoorUI(data.f, data.d);
-                if (isHost) broadcast(data, conn);
-
-            } else if (data.type === 'RESET') {
-                // 清空標記
-                clearLocal();
-                if (isHost) broadcast(data, conn);
-
             } else if (data.type === 'KICK') {
-                // 被踢出房間處理
                 if (data.targetId === fullMyId) {
                     alert("您已被房主踢出房間。");
                     leaveRoom();
                 }
-
-            } else if (data.type === 'COLOR_CHANGE') {
-                // 隊友變更顏色
-                const user = Object.values(connections).find(c => c.nick === data.nick);
-                if (user) {
-                    user.color = data.color;
-                    refreshParticipantList();
-                    // 更新該隊友所有的標記顏色
-                    for (let f = 0; f < 10; f++) for (let d = 0; d < 4; d++) {
-                        if (mapData[f][d].owner === data.nick) updateDoorUI(f, d);
-                    }
-                }
-                if (isHost) broadcast(data, conn);
+            } else if (data.type.startsWith('CMD_')) {
+                // 會員發給房主的命令
+                if (isHost) handleCommand(data, conn.peer);
             }
         }
 
-        function getFullNickList() {
-            // 房主彙整後的完整名單
-            return [
-                { nick: myNick, isHost: isHost, color: myColor, peerId: fullMyId }, 
-                ...Object.values(connections).map(c => ({ 
-                    nick: c.nick, isHost: false, color: c.color, peerId: c.conn.peer 
-                }))
-            ];
+        // 房主專用：處理所有人（含自己）的操作
+        function handleCommand(cmd, fromPeerId = null) {
+            if (!isHost) return;
+            
+            const pId = fromPeerId || fullMyId;
+            const slot = gameState.slots.find(s => s && s.peerId === pId);
+            if (!slot) return;
+
+            if (cmd.type === 'CMD_MARKER') {
+                const { f, d, mType } = cmd; // mType: 'pass' | 'dead' | 'clear'
+                
+                if (mType === 'pass') {
+                    // 清除同層自己的舊 Pass 標記
+                    slot.passMarkers = slot.passMarkers.filter(m => m.f !== f);
+                    slot.passMarkers.push({ f, d });
+                    // 同時清除該格的自己的 DeadEnd
+                    slot.deadEndMarkers = slot.deadEndMarkers.filter(m => !(m.f === f && m.d === d));
+                    // 房主強權：如果是房主標記，可能要考慮是否允許覆蓋他人？
+                    // 目前逻辑維持：每人各自標記自己的
+                } else if (mType === 'dead') {
+                    slot.deadEndMarkers.push({ f, d });
+                    slot.passMarkers = slot.passMarkers.filter(m => !(m.f === f && m.d === d));
+                } else if (mType === 'clear_pass') {
+                    slot.passMarkers = slot.passMarkers.filter(m => !(m.f === f && m.d === d));
+                } else if (mType === 'clear_dead') {
+                    slot.deadEndMarkers = slot.deadEndMarkers.filter(m => !(m.f === f && m.d === d));
+                }
+            } else if (cmd.type === 'CMD_COLOR') {
+                slot.color = cmd.color;
+            } else if (cmd.type === 'CMD_RESET') {
+                gameState.slots.forEach(s => {
+                    if (s) { s.passMarkers = []; s.deadEndMarkers = []; }
+                });
+            } else if (cmd.type === 'CMD_KICK') {
+                const target = gameState.slots[cmd.targetIndex];
+                if (target) {
+                    const tConn = connections[target.peerId]?.conn;
+                    if (tConn) {
+                        tConn.send({ type: 'KICK', targetId: target.peerId });
+                        setTimeout(() => tConn.close(), 500);
+                    }
+                    gameState.slots[cmd.targetIndex] = null;
+                }
+            }
+
+            broadcastState();
+            refreshUI();
+        }
+
+        function broadcastState() {
+            if (!isHost) return;
+            broadcast({ type: 'STATE_SYNC', state: gameState });
+        }
+
+        function refreshUI() {
+            // 更新成員名單
+            const activeSlots = gameState.slots.filter(s => s !== null && s.connected);
+            renderNameTags(activeSlots);
+            const title = getDoc().getElementById('member-title');
+            if (title) title.innerText = `👥 房間成員 (${activeSlots.length}/8)`;
+
+            // 更新地圖所有格子
+            for (let f = 0; f < 10; f++) for (let d = 0; d < 4; d++) {
+                updateDoorUI(f, d);
+            }
+        }
+
+        function renderNameTags(slots) {
+            const list = getDoc().getElementById('participant-list');
+            if (list) list.innerHTML = "";
+            slots.forEach(s => {
+                const tag = document.createElement("span");
+                tag.className = `participant-tag ${s.isHost ? 'host' : ''}`;
+                tag.style.borderColor = s.color;
+                tag.style.color = s.color;
+                
+                const icon = s.isHost ? "👑 " : "👤 ";
+                tag.innerHTML = icon + s.nick;
+
+                if (isHost && !s.isHost) {
+                    const kBtn = document.createElement("span");
+                    kBtn.className = "kick-btn";
+                    kBtn.innerHTML = "&times;";
+                    kBtn.onclick = (e) => {
+                        e.stopPropagation();
+                        if (confirm(`確定要踢出 ${s.nick} 嗎？`)) {
+                            handleCommand({ type: 'CMD_KICK', targetIndex: s.index });
+                        }
+                    };
+                    tag.appendChild(kBtn);
+                }
+                if (list) list.appendChild(tag);
+            });
         }
 
         function broadcast(msg, exclude = null) {
@@ -1196,97 +1269,18 @@
             });
         }
 
-        function refreshParticipantList() {
-            const users = getFullNickList();
-            renderNameTags(users);
-            
-            // 更新畫面上的人數統計
-            const title = getDoc().getElementById('member-title');
-            if (title) title.innerText = `👥 房間成員 (${users.length}/8)`;
-        }
-
-        function updateParticipantListFromWelcome(users) {
-            renderNameTags(users);
-            const title = getDoc().getElementById('member-title');
-            if (title) title.innerText = `👥 房間成員 (${users.length}/8)`;
-            
-            // 成員收到名單後，同步更新本地儲存的對應關係（主要是為了顏色與 ID）
-            users.forEach(u => {
-                if (u.nick !== myNick) {
-                    // 如果是房主，優先找 nick 為房主或 peerId 匹配的
-                    const connObj = Object.values(connections).find(c => 
-                        c.conn.peer === u.peerId || (u.isHost && (c.nick === "房主" || c.conn.peer === hostPeerId))
-                    );
-                    if (connObj) {
-                        connObj.color = u.color;
-                        // 修正：不要任意修改 nick，除非它是初始的 "房主" 標記且我們要保留它的身份
-                        if (connObj.nick === "房主") {
-                            // 保留連線，但不破換 syncMsg 的查找邏輯 (現在 syncMsg 改用 hostPeerId 所以沒關係)
-                            connObj.actualNick = u.nick; 
-                        }
-                    }
-                }
-            });
-        }
-
-        function renderNameTags(tags) {
-            const list = getDoc().getElementById('participant-list');
-            if (list) list.innerHTML = "";
-            tags.forEach(t => {
-                const tag = document.createElement("span");
-                const color = t.color || getNickColor(t.nick);
-                tag.className = `participant-tag ${t.isHost ? 'host' : ''}`;
-                tag.style.borderColor = color;
-                tag.style.color = color;
-                
-                // 修正 icon 與 踢除按鈕邏輯
-                const icon = t.isHost ? "👑 " : "👤 ";
-                tag.innerHTML = icon + t.nick;
-
-                // 若我是房主，且此標籤不是我自己，則顯示踢人按鈕
-                if (isHost && t.peerId !== fullMyId) {
-                    const kBtn = document.createElement("span");
-                    kBtn.className = "kick-btn";
-                    kBtn.innerHTML = "&times;";
-                    kBtn.title = "踢出使用者";
-                    kBtn.onclick = (e) => {
-                        e.stopPropagation();
-                        kickUser(t.peerId, t.nick);
-                    };
-                    tag.appendChild(kBtn);
-                }
-
-                if (list) list.appendChild(tag);
-            });
-        }
-
-        // 房主踢人功能
-        function kickUser(peerId, nick) {
-            if (!confirm(`確定要將「${nick}」踢出房間嗎？`)) return;
-            
-            // 發送被踢訊息
-            const conn = connections[peerId]?.conn;
-            if (conn && conn.open) {
-                conn.send({ type: 'KICK', targetId: peerId });
-                setTimeout(() => conn.close(), 500);
-            }
-            
-            // 本地移除
-            log(`已踢出成員: ${nick}`, "warn");
-            removeUserMarkers(nick);
-            delete connections[peerId];
-            refreshParticipantList();
-            
-            // 通知其餘成員名單變動
-            broadcast({ type: 'NICK_LIST', users: getFullNickList() });
-        }
-
-        function removeUserMarkers(nick) {
-            for (let f = 0; f < 10; f++) for (let d = 0; d < 4; d++) {
-                if (mapData[f][d].owner === nick) {
-                    mapData[f][d].v = 0;
-                    mapData[f][d].owner = null;
-                    updateDoorUI(f, d);
+        function syncMsg(msg) {
+            if (isHost) {
+                broadcast(msg);
+            } else {
+                // 會員端應直接發送訊息給 hostPeerId
+                const hostConn = connections[hostPeerId];
+                if (hostConn && hostConn.conn.open) {
+                    hostConn.conn.send(msg);
+                } else {
+                    // 備用方案：找標記為房主的連線
+                    const fallback = Object.values(connections).find(c => c.nick === "房主");
+                    if (fallback && fallback.conn.open) fallback.conn.send(msg);
                 }
             }
         }
@@ -1359,8 +1353,7 @@
                             if (mobileTimer) { clearTimeout(mobileTimer); mobileTimer = null; }
                             el.classList.remove('mobile-pending');
                             
-                            // 雙擊：先確認如果是為了取代通路，則清空通路再標死路
-                            if (mapData[f][d].v === 1) onDoorClick(f, d);
+                            // 雙擊：先將此格改為死路
                             onDoorRightClick(f, d); 
                             lastTouchTime = 0;
                         } else {
@@ -1395,60 +1388,42 @@
 
         function onDoorClick(f, d) {
             if (!myNick) return alert("請先設定暱稱。");
-            const item = mapData[f][d];
-            if (item.v === 1) {
-                if (item.owner === myNick || isHost) {
-                    item.v = 0;
-                    item.owner = null;
+            
+            // 找出該格目前狀態
+            const ownerSlot = gameState.slots.find(s => s && s.connected && s.passMarkers.some(m => m.f === f && m.d === d));
+            
+            if (ownerSlot) {
+                // 如果已經有標記了，檢查是否是我自己的
+                if (ownerSlot.index === mySlotIndex || isHost) {
+                    const cmd = { type: 'CMD_MARKER', f, d, mType: 'clear_pass' };
+                    if (isHost) handleCommand(cmd);
+                    else syncMsg(cmd);
                 } else {
                     log("無法取消他人的標記。", "warn");
-                    return;
                 }
             } else {
-                if (item.owner && item.owner !== myNick) {
-                    log(`該格已被 ${item.owner} 標記。`, "warn");
-                    return;
-                }
-                for (let i = 0; i < 4; i++) {
-                    if (mapData[f][i].owner === myNick) {
-                        const oldMsg = { type: 'SYNC', f, d: i, v: 0, owner: null };
-                        syncMsg(oldMsg);
-                        mapData[f][i].v = 0;
-                        mapData[f][i].owner = null;
-                        updateDoorUI(f, i);
-                    }
-                }
-                item.v = 1;
-                item.owner = myNick;
-            }
-            updateDoorUI(f, d);
-            syncMsg({ type: 'SYNC', f, d, v: item.v, owner: item.owner });
-        }
-
-        function syncMsg(msg) {
-            if (isHost) {
-                broadcast(msg);
-            } else {
-                // 會員端應直接發送訊息給 hostPeerId
-                const hostConn = connections[hostPeerId];
-                if (hostConn && hostConn.conn.open) {
-                    hostConn.conn.send(msg);
-                } else {
-                    // 備用方案：找標記為房主的連線
-                    const fallback = Object.values(connections).find(c => c.nick === "房主");
-                    if (fallback && fallback.conn.open) fallback.conn.send(msg);
-                }
+                // 空格，標記為通路
+                const cmd = { type: 'CMD_MARKER', f, d, mType: 'pass' };
+                if (isHost) handleCommand(cmd);
+                else syncMsg(cmd);
             }
         }
 
         function onDoorRightClick(f, d) {
-            const el = getDoc().getElementById(`d-${f}-${d}`);
-            if (!el) return;
-            if (el.classList.contains('state-error')) {
-                el.classList.remove('state-error');
+            if (!myNick) return;
+            
+            // 檢查死路狀態
+            const hasDead = gameState.slots.some(s => s && s.index === mySlotIndex && s.deadEndMarkers.some(m => m.f === f && m.d === d));
+            
+            if (hasDead) {
+                const cmd = { type: 'CMD_MARKER', f, d, mType: 'clear_dead' };
+                if (isHost) handleCommand(cmd);
+                else syncMsg(cmd);
             } else {
-                if (el.classList.contains('state-pass')) return;
-                el.classList.add('state-error');
+                // 標記死路
+                const cmd = { type: 'CMD_MARKER', f, d, mType: 'dead' };
+                if (isHost) handleCommand(cmd);
+                else syncMsg(cmd);
             }
         }
 
@@ -1456,51 +1431,31 @@
             const el = getDoc().getElementById(`d-${f}-${d}`);
             if (!el) return;
             const tag = el.querySelector('.door-tag');
-            const item = mapData[f][d];
-            if (item.v === 1) {
-                const color = getNickColor(item.owner);
-                el.classList.add('state-pass');
-                el.classList.remove('state-error');
-                el.style.setProperty('--marker-color', color);
-                tag.innerText = item.owner;
-            } else {
-                el.classList.remove('state-pass');
-                el.style.removeProperty('--marker-color');
-                tag.innerText = "";
-            }
-        }
+            
+            // 尋找此格的通路標記（同層只能有一人標記？不，原本邏輯是每人都可以標，但 UI 只顯示一個）
+            // 依照使用者要求：同步已標記格子。如果有複數人標記同一格，我們顯示最後一位或特定順序。
+            const passSlot = [...gameState.slots].reverse().find(s => s && s.connected && s.passMarkers.some(m => m.f === f && m.d === d));
+            const deadSlot = gameState.slots.find(s => s && s.index === mySlotIndex && s.deadEndMarkers.some(m => m.f === f && m.d === d));
 
-        function clearLocal() {
-            const doc = getDoc();
-            const containerNode = doc.querySelector('.container');
-            for (let f = 0; f < 10; f++) for (let d = 0; d < 4; d++) {
-                mapData[f][d].v = 0;
-                mapData[f][d].owner = null;
-                // 使用容器內查詢增加穩定性
-                const el = containerNode ? containerNode.querySelector(`#d-${f}-${d}`) : doc.getElementById(`d-${f}-${d}`);
-                if (el) {
-                    el.classList.remove('state-pass', 'state-error');
-                    el.style.removeProperty('--marker-color');
-                    const tag = el.querySelector('.door-tag');
-                    if (tag) tag.innerText = "";
-                }
+            el.classList.remove('state-pass', 'state-error');
+            el.style.removeProperty('--marker-color');
+            tag.innerText = "";
+
+            if (passSlot) {
+                el.classList.add('state-pass');
+                el.style.setProperty('--marker-color', passSlot.color);
+                tag.innerText = passSlot.nick;
+            } else if (deadSlot) {
+                el.classList.add('state-error');
             }
         }
 
         function resetAll() {
-            try {
-                // 1. 本地數據與介面清空
-                clearLocal();
-                
-                // 2. 通訊同步
-                const msg = { type: 'RESET' };
-                if (isHost) broadcast(msg);
-                else syncMsg(msg);
-                log("已清空所有標記。", "warn");
-            } catch (err) {
-                console.error("Reset Error:", err);
-                log("重置失敗: " + err.message, "error");
-            }
+            if (!confirm("確定要清空所有人的標記嗎？")) return;
+            const cmd = { type: 'CMD_RESET' };
+            if (isHost) handleCommand(cmd);
+            else syncMsg(cmd);
+            log("已清空所有標記。", "warn");
         }
 
         // === 懸浮視窗 (PiP) ===
