@@ -754,6 +754,7 @@
         let myNick = "";
         let isHost = false;
         let fullMyId = "";
+        let hostPeerId = ""; // 房主真正的 PeerID
         let connections = {}; // { peerId: { conn, nick, color } }
         let mapData = Array(10).fill().map(() => Array(4).fill().map(() => ({ v: 0, owner: null })));
         
@@ -875,7 +876,8 @@
             if (myColor === c) return;
             
             // 檢查是否與房內其他成員重複
-            const isDup = Object.values(connections).some(conn => conn.color === c);
+            const users = getFullNickList();
+            const isDup = users.some(u => u.nick !== myNick && u.color === c);
             if (isDup) {
                 alert("該顏色已被房內其他隊友使用，請選擇其他顏色。");
                 return;
@@ -891,7 +893,9 @@
             }
 
             // 同步給其他人
-            syncMsg({ type: 'COLOR_CHANGE', nick: myNick, color: c });
+            const msg = { type: 'COLOR_CHANGE', nick: myNick, color: c };
+            if (isHost) broadcast(msg);
+            else syncMsg(msg);
             log("變更標記顏色", "info");
         }
 
@@ -917,6 +921,7 @@
             }
             isHost = false;
             fullMyId = "";
+            hostPeerId = "";
             connections = {};
             clearLocal();
 
@@ -996,6 +1001,7 @@
                 getDoc().getElementById('join-id').disabled = true;
 
                 window.location.hash = fullMyId;
+                hostPeerId = fullMyId;
                 log(`已建立房間。房號: ${fullMyId}`, "success");
                 refreshParticipantList();
                 // 自動點擊一次清空標記以初始化視窗物件與狀態
@@ -1007,6 +1013,7 @@
         function startJoin() {
             const targetId = getDoc().getElementById('join-id').value.trim();
             if (!targetId) return alert("請貼上房號");
+            hostPeerId = targetId;
             
             initPeer(() => {
                 setLoading(true, "正式接入中...");
@@ -1176,7 +1183,7 @@
         function getFullNickList() {
             // 房主彙整後的完整名單
             return [
-                { nick: myNick, isHost: true, color: myColor, peerId: fullMyId }, 
+                { nick: myNick, isHost: isHost, color: myColor, peerId: fullMyId }, 
                 ...Object.values(connections).map(c => ({ 
                     nick: c.nick, isHost: false, color: c.color, peerId: c.conn.peer 
                 }))
@@ -1203,13 +1210,20 @@
             const title = getDoc().getElementById('member-title');
             if (title) title.innerText = `👥 房間成員 (${users.length}/8)`;
             
-            // 成員收到名單後，同步更新本地儲存的對應關係（主要是為了顏色）
+            // 成員收到名單後，同步更新本地儲存的對應關係（主要是為了顏色與 ID）
             users.forEach(u => {
                 if (u.nick !== myNick) {
-                    const connObj = Object.values(connections).find(c => c.conn.peer === u.peerId || (u.isHost && c.nick === "房主"));
+                    // 如果是房主，優先找 nick 為房主或 peerId 匹配的
+                    const connObj = Object.values(connections).find(c => 
+                        c.conn.peer === u.peerId || (u.isHost && (c.nick === "房主" || c.conn.peer === hostPeerId))
+                    );
                     if (connObj) {
                         connObj.color = u.color;
-                        connObj.nick = u.nick;
+                        // 修正：不要任意修改 nick，除非它是初始的 "房主" 標記且我們要保留它的身份
+                        if (connObj.nick === "房主") {
+                            // 保留連線，但不破換 syncMsg 的查找邏輯 (現在 syncMsg 改用 hostPeerId 所以沒關係)
+                            connObj.actualNick = u.nick; 
+                        }
                     }
                 }
             });
@@ -1225,12 +1239,12 @@
                 tag.style.borderColor = color;
                 tag.style.color = color;
                 
-                // 房主圖示與暱稱
+                // 修正 icon 與 踢除按鈕邏輯
                 const icon = t.isHost ? "👑 " : "👤 ";
                 tag.innerHTML = icon + t.nick;
 
                 // 若我是房主，且此標籤不是我自己，則顯示踢人按鈕
-                if (isHost && t.nick !== myNick) {
+                if (isHost && t.peerId !== fullMyId) {
                     const kBtn = document.createElement("span");
                     kBtn.className = "kick-btn";
                     kBtn.innerHTML = "&times;";
@@ -1321,30 +1335,50 @@
 
                     door.addEventListener('touchstart', (e) => {
                         const now = Date.now();
-                        // 檢查是否為 1s (1000ms) 內的雙擊
+                        const el = getDoc().getElementById(`d-${f}-${d}`);
+                        const hasMarker = el && (el.classList.contains('state-pass') || el.classList.contains('state-error'));
+
+                        // 如果格子已有標記，點擊直接清空，不觸發雙擊
+                        if (hasMarker) {
+                            e.preventDefault();
+                            if (mobileTimer) { clearTimeout(mobileTimer); mobileTimer = null; }
+                            el.classList.remove('mobile-pending');
+                            
+                            if (el.classList.contains('state-error')) {
+                                onDoorRightClick(f, d); // 清空死路
+                            } else {
+                                onDoorClick(f, d); // 清空通路
+                            }
+                            lastTouchTime = 0;
+                            return;
+                        }
+
+                        // 雙擊邏輯 (1s 內)
                         if (now - lastTouchTime < 1000 && now - lastTouchTime > 50) {
                             e.preventDefault();
-                            if (mobileTimer) {
-                                clearTimeout(mobileTimer);
-                                mobileTimer = null;
-                            }
-                            door.classList.remove('mobile-pending');
-                            onDoorRightClick(f, d); // 標記死路
+                            if (mobileTimer) { clearTimeout(mobileTimer); mobileTimer = null; }
+                            el.classList.remove('mobile-pending');
+                            
+                            // 雙擊：先確認如果是為了取代通路，則清空通路再標死路
+                            if (mapData[f][d].v === 1) onDoorClick(f, d);
+                            onDoorRightClick(f, d); 
                             lastTouchTime = 0;
                         } else {
-                            // 第一次點擊，啟動 1s 倒數提示
+                            // 第一次點擊：立刻標記通路 (Pass) 
                             lastTouchTime = now;
-                            door.classList.add('mobile-pending');
+                            onDoorClick(f, d); 
+                            
+                            // 啟動 1s 倒數提示（等待可能的雙擊）
+                            el.classList.add('mobile-pending');
                             mobileTimer = setTimeout(() => {
-                                door.classList.remove('mobile-pending');
+                                el.classList.remove('mobile-pending');
                                 mobileTimer = null;
                             }, 1000);
                         }
                     }, { passive: false });
 
                     door.onclick = (e) => {
-                        // 防止 touch 與 click 同時觸發導致的邏輯衝突
-                        if (Date.now() - lastTouchTime < 500) return;
+                        // PC 版正常邏輯，Mobile 版由 touchstart 接管 preventDefault
                         onDoorClick(f, d);
                     };
                     door.oncontextmenu = (e) => {
@@ -1392,10 +1426,18 @@
         }
 
         function syncMsg(msg) {
-            if (isHost) broadcast(msg);
-            else {
-                const hostConn = Object.values(connections).find(c => c.nick === "房主");
-                if (hostConn && hostConn.conn.open) hostConn.conn.send(msg);
+            if (isHost) {
+                broadcast(msg);
+            } else {
+                // 會員端應直接發送訊息給 hostPeerId
+                const hostConn = connections[hostPeerId];
+                if (hostConn && hostConn.conn.open) {
+                    hostConn.conn.send(msg);
+                } else {
+                    // 備用方案：找標記為房主的連線
+                    const fallback = Object.values(connections).find(c => c.nick === "房主");
+                    if (fallback && fallback.conn.open) fallback.conn.send(msg);
+                }
             }
         }
 
@@ -1453,10 +1495,7 @@
                 // 2. 通訊同步
                 const msg = { type: 'RESET' };
                 if (isHost) broadcast(msg);
-                else {
-                    const hostConn = Object.values(connections).find(c => c.nick === "房主");
-                    if (hostConn && hostConn.conn.open) hostConn.send(msg);
-                }
+                else syncMsg(msg);
                 log("已清空所有標記。", "warn");
             } catch (err) {
                 console.error("Reset Error:", err);
