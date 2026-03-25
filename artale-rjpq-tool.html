@@ -442,19 +442,42 @@
         }
 
         .door {
-            height: 38px;
-            background: linear-gradient(to bottom, #ffffff 0%, #e0e0e0 100%);
-            border: 2px solid #666;
-            border-bottom: 4px solid #444;
-            border-radius: 4px;
-            cursor: pointer;
+            position: relative;
+            aspect-ratio: 1;
+            border: 1px solid #ddd;
             display: flex;
             flex-direction: column;
             justify-content: center;
             align-items: center;
-            transition: all 0.1s;
-            position: relative;
+            cursor: pointer;
+            transition: 0.1s;
+            background: #fff;
+            overflow: hidden;
         }
+
+        .door.state-pass { background: rgba(var(--marker-color-rgb, 66, 133, 244), 0.15); border-color: var(--marker-color, #4285f4); }
+        .door.state-error { background: #ffebee; }
+
+        /* 死路小點容器 */
+        .dead-end-dots {
+            position: absolute;
+            top: 2px;
+            right: 2px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 2px;
+            max-width: 50%;
+            justify-content: flex-end;
+            pointer-events: none;
+        }
+        .dead-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            border: 1px solid rgba(255,255,255,0.8);
+        }
+        /* 我自己的死路標記強化顯示 */
+        .door.my-dead { border: 2px dashed #e57373; }
 
         .door:hover {
             border-color: #333;
@@ -464,11 +487,6 @@
         .door:active {
             border-bottom-width: 2px;
             transform: translateY(2px);
-        }
-
-        .door.state-pass {
-            background: var(--marker-color, #28a745);
-            border-color: rgba(0, 0, 0, 0.2);
         }
 
         .door.state-pass::after {
@@ -652,8 +670,9 @@
                 </div>
 
                 <div id="conn-panel" class="conn-panel" style="margin-top: 10px;">
-                    <div class="panel-label">
+                    <div class="panel-label" style="display: flex; align-items: center; justify-content: space-between;">
                         <span>📡 房間設定</span>
+                        <span id="conn-status" style="font-size: 10px; color: #999;">🔴 未連線</span>
                     </div>
                     <div style="display: flex; gap: 8px; margin-bottom: 8px;">
                         <button class="ms-btn primary" id="btn-host" onclick="startHost()"
@@ -734,8 +753,8 @@
                 </ul>
 
                 <h3 style="color: var(--ms-dark-blue); border-bottom: 2px solid #ccc; padding-bottom: 5px;">📱 操作手冊</h3>
-                <p><b>左鍵 / 點擊</b>：標記正確軌跡路徑。</p>
-                <p><b>右鍵 / 手機雙擊</b>：標記死路（紅X），此標記**僅自己看見**（會有 1 秒倒數提醒）。</p>
+                <p><b>左鍵 / 點擊</b>：標記正確軌跡路徑（通路）。</p>
+                <p><b>右鍵 / 手機雙擊</b>：標記死路（紅X）。此標記為**全隊共享**，您可以透過彩色小紅點辨識是誰標記的資訊。</p>
                 
                 <h3 style="color: var(--ms-dark-blue); border-bottom: 2px solid #ccc; padding-bottom: 5px;">🖼️ 懸浮視窗 (PiP)</h3>
                 <p>點擊「懸浮視窗」可將工具獨立出來並置頂在遊戲畫面（僅限電腦版 Chrome/Edge）。此模式下標記功能依然保持同步。</p>
@@ -909,6 +928,14 @@
             getDoc().getElementById('btn-join').disabled = true;
         }
 
+        function setStatus(text, color = "#999") {
+            const el = getDoc().getElementById('conn-status');
+            if (el) {
+                el.innerText = text;
+                el.style.color = color;
+            }
+        }
+
         function leaveRoom() {
             if (peer) {
                 peer.destroy();
@@ -935,6 +962,7 @@
             getDoc().getElementById('btn-reset-all').style.display = "none";
             getDoc().getElementById('participant-list').innerHTML = "";
             getDoc().getElementById('member-title').innerText = "👥 房間成員 (0/8)";
+            setStatus("🔴 未連線", "#999");
             
             // 清空地圖 UI
             for (let f = 0; f < 10; f++) for (let d = 0; d < 4; d++) updateDoorUI(f, d);
@@ -1013,6 +1041,7 @@
 
                 window.location.hash = fullMyId;
                 hostPeerId = fullMyId;
+                setStatus("🟢 已連線 (房主)", "#4caf50");
                 log(`已建立房間。房號: ${fullMyId}`, "success");
                 refreshUI();
             });
@@ -1025,6 +1054,7 @@
             
             initPeer(() => {
                 setLoading(true, "正式接入中...");
+                setStatus("🟡 連線中...", "#ffa726");
                 
                 // 禁用房間設定
                 getDoc().getElementById('btn-host').disabled = true;
@@ -1035,6 +1065,7 @@
                 const conn = peer.connect(targetId, { reliable: true });
                 setupConnection(conn);
                 conn.on('open', () => {
+                    setStatus("🟢 已連線 (成員)", "#4caf50");
                     log(`已連接房主，申請加入...`, "info");
                     conn.send({ type: 'JOIN', nick: myNick, color: myColor });
                 });
@@ -1239,7 +1270,7 @@
             const list = getDoc().getElementById('participant-list');
             if (list) list.innerHTML = "";
             slots.forEach(s => {
-                const tag = document.createElement("span");
+                const tag = getDoc().createElement("span");
                 tag.className = `participant-tag ${s.isHost ? 'host' : ''}`;
                 tag.style.borderColor = s.color;
                 tag.style.color = s.color;
@@ -1248,7 +1279,7 @@
                 tag.innerHTML = icon + s.nick;
 
                 if (isHost && !s.isHost) {
-                    const kBtn = document.createElement("span");
+                    const kBtn = getDoc().createElement("span");
                     kBtn.className = "kick-btn";
                     kBtn.innerHTML = "&times;";
                     kBtn.onclick = (e) => {
@@ -1298,29 +1329,29 @@
             if (!grid) return;
             grid.innerHTML = "";
             for (let f = 0; f < 10; f++) {
-                const floor = document.createElement("div");
+                const floor = getDoc().createElement("div");
                 floor.className = "floor";
-                const label = document.createElement("div");
+                const label = getDoc().createElement("div");
                 label.className = "f-label";
                 label.innerText = `L${10 - f}`;
                 floor.appendChild(label);
 
-                const doorGridContainer = document.createElement("div");
+                const doorGridContainer = getDoc().createElement("div");
                 doorGridContainer.className = "door-grid-container";
 
-                const doors = document.createElement("div");
+                const doors = getDoc().createElement("div");
                 doors.className = "door-grid";
                 for (let d = 0; d < 4; d++) {
-                    const door = document.createElement("div");
+                    const door = getDoc().createElement("div");
                     door.className = "door";
                     door.id = `d-${f}-${d}`;
                     
-                    const cellId = document.createElement("div");
+                    const cellId = getDoc().createElement("div");
                     cellId.className = "door-cell-id";
                     cellId.innerText = d + 1;
                     door.appendChild(cellId);
 
-                    const tag = document.createElement("div");
+                    const tag = getDoc().createElement("div");
                     tag.className = "door-tag";
                     door.appendChild(tag);
 
@@ -1371,7 +1402,6 @@
                     }, { passive: false });
 
                     door.onclick = (e) => {
-                        // PC 版正常邏輯，Mobile 版由 touchstart 接管 preventDefault
                         onDoorClick(f, d);
                     };
                     door.oncontextmenu = (e) => {
@@ -1389,11 +1419,9 @@
         function onDoorClick(f, d) {
             if (!myNick) return alert("請先設定暱稱。");
             
-            // 找出該格目前狀態
             const ownerSlot = gameState.slots.find(s => s && s.connected && s.passMarkers.some(m => m.f === f && m.d === d));
             
             if (ownerSlot) {
-                // 如果已經有標記了，檢查是否是我自己的
                 if (ownerSlot.index === mySlotIndex || isHost) {
                     const cmd = { type: 'CMD_MARKER', f, d, mType: 'clear_pass' };
                     if (isHost) handleCommand(cmd);
@@ -1402,7 +1430,6 @@
                     log("無法取消他人的標記。", "warn");
                 }
             } else {
-                // 空格，標記為通路
                 const cmd = { type: 'CMD_MARKER', f, d, mType: 'pass' };
                 if (isHost) handleCommand(cmd);
                 else syncMsg(cmd);
@@ -1412,15 +1439,15 @@
         function onDoorRightClick(f, d) {
             if (!myNick) return;
             
-            // 檢查死路狀態
-            const hasDead = gameState.slots.some(s => s && s.index === mySlotIndex && s.deadEndMarkers.some(m => m.f === f && m.d === d));
+            const mySlot = gameState.slots[mySlotIndex];
+            if (!mySlot) return;
+            const hasMyDead = mySlot.deadEndMarkers.some(m => m.f === f && m.d === d);
             
-            if (hasDead) {
+            if (hasMyDead) {
                 const cmd = { type: 'CMD_MARKER', f, d, mType: 'clear_dead' };
                 if (isHost) handleCommand(cmd);
                 else syncMsg(cmd);
             } else {
-                // 標記死路
                 const cmd = { type: 'CMD_MARKER', f, d, mType: 'dead' };
                 if (isHost) handleCommand(cmd);
                 else syncMsg(cmd);
@@ -1431,24 +1458,59 @@
             const el = getDoc().getElementById(`d-${f}-${d}`);
             if (!el) return;
             const tag = el.querySelector('.door-tag');
-            
-            // 尋找此格的通路標記（同層只能有一人標記？不，原本邏輯是每人都可以標，但 UI 只顯示一個）
-            // 依照使用者要求：同步已標記格子。如果有複數人標記同一格，我們顯示最後一位或特定順序。
-            const passSlot = [...gameState.slots].reverse().find(s => s && s.connected && s.passMarkers.some(m => m.f === f && m.d === d));
-            const deadSlot = gameState.slots.find(s => s && s.index === mySlotIndex && s.deadEndMarkers.some(m => m.f === f && m.d === d));
+            let dotsContainer = el.querySelector('.dead-end-dots');
+            if (!dotsContainer) {
+                dotsContainer = getDoc().createElement('div');
+                dotsContainer.className = 'dead-end-dots';
+                el.appendChild(dotsContainer);
+            }
+            dotsContainer.innerHTML = "";
 
-            el.classList.remove('state-pass', 'state-error');
+            const passSlot = [...gameState.slots].reverse().find(s => s && s.connected && s.passMarkers.some(m => m.f === f && m.d === d));
+            const deadSlots = gameState.slots.filter(s => s && s.connected && s.deadEndMarkers.some(m => m.f === f && m.d === d));
+
+            el.classList.remove('state-pass', 'state-error', 'my-dead');
             el.style.removeProperty('--marker-color');
+            el.style.removeProperty('--marker-color-rgb');
             tag.innerText = "";
+
+            deadSlots.forEach(s => {
+                const dot = getDoc().createElement('div');
+                dot.className = 'dead-dot';
+                dot.style.backgroundColor = s.color;
+                dotsContainer.appendChild(dot);
+                if (s.index === mySlotIndex) el.classList.add('my-dead');
+            });
 
             if (passSlot) {
                 el.classList.add('state-pass');
                 el.style.setProperty('--marker-color', passSlot.color);
+                const rgb = hexToRgb(hslToHex(passSlot.color)) || "66, 133, 244";
+                el.style.setProperty('--marker-color-rgb', rgb);
                 tag.innerText = passSlot.nick;
-            } else if (deadSlot) {
+            } else if (deadSlots.length > 0) {
                 el.classList.add('state-error');
             }
         }
+
+        function hslToHex(hslStr) {
+            const match = hslStr.match(/\d+/g);
+            if (!match) return "#4285f4";
+            let h = parseInt(match[0]), s = parseInt(match[1]), l = parseInt(match[2]);
+            l /= 100;
+            const a = s * Math.min(l, 1 - l) / 100;
+            const f = n => {
+                const k = (n + h / 30) % 12;
+                const color = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
+                return Math.round(255 * color).toString(16).padStart(2, '0');
+            };
+            return `#${f(0)}${f(8)}${f(4)}`;
+        }
+        function hexToRgb(hex) {
+            var result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+            return result ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}` : null;
+        }
+
 
         function resetAll() {
             if (!confirm("確定要清空所有人的標記嗎？")) return;
