@@ -220,11 +220,15 @@
             margin-bottom: 3px;
         }
 
+        @media (max-width: 768px) {
+            .pip-btn { display: none !important; }
+        }
+
         .help-btn {
             background: #fff;
             border: 2px solid var(--ms-dark-blue);
             color: var(--ms-dark-blue);
-            padding: 12px;
+            padding: 8px; /* 縮小一點 */
             border-radius: 6px;
             cursor: pointer;
             text-align: center;
@@ -234,7 +238,7 @@
             user-select: none;
             display: block;
             width: 100%;
-            font-size: 15px;
+            font-size: 14px;
         }
 
         .help-btn:hover {
@@ -419,14 +423,16 @@
         }
 
         .f-label {
-            width: 24px; /* 窄一點 */
+            width: 24px;
             font-weight: bold;
             font-size: 11px;
             color: #fff;
-            text-transform: uppercase;
+            background: #444; /* 深色背景 */
+            border-radius: 3px;
             text-shadow: 1px 1px 0 #000;
-            text-align: right;
-            padding-right: 2px;
+            text-align: center; /* 置中 */
+            padding: 2px 0;
+            box-shadow: 1px 1px 2px rgba(0,0,0,0.3);
         }
 
         .door-grid-container {
@@ -438,20 +444,21 @@
         .door-grid {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
-            gap: 2px; /* 減小格子間距 */
+            gap: 4px; /* 調回 4px 以節省空間 */
         }
 
         .door {
             position: relative;
-            height: 32px;  /* 減小高度 */
+            height: 28px; /* 再縮一點點 */
             width: 100%;
-            border: 1px solid #999;
+            border: 1.5px solid #888;
+            border-radius: 6px;
             display: flex;
             flex-direction: column;
             justify-content: center;
             align-items: center;
             cursor: pointer;
-            transition: 0.1s;
+            transition: border-color 0.1s;
             background: #fff;
             overflow: hidden;
             box-shadow: inset 0 1px 1px rgba(255,255,255,0.8);
@@ -498,7 +505,7 @@
 
         .door:hover {
             border-color: #333;
-            background: #fff;
+            /* 移除 background: #fff 避免覆蓋標記背景 */
         }
 
         .door:active {
@@ -507,11 +514,11 @@
         }
 
         .door.state-pass::after {
-            content: "✓";
-            color: rgba(255,255,255,0.9);
+            content: "O";
+            color: rgba(255,255,255,0.95);
             font-weight: bold;
-            text-shadow: 0 0 2px rgba(0,0,0,0.5);
-            font-size: 18px;
+            text-shadow: 1px 1px 0 rgba(0,0,0,0.5);
+            font-size: 18px; /* 稍縮 */
         }
 
         .door-cell-id {
@@ -680,34 +687,28 @@
                     <input type="text" id="nick-input" maxlength="10" placeholder="輸入暱稱 (中英數)...">
                     <div class="action-group">
                         <button class="ms-btn" onclick="saveNick()" id="btn-save-nick">確定暱稱</button>
-                        <button class="ms-btn" onclick="editNick()" id="btn-edit-nick"
-                            style="display: none;">修改暱稱</button>
+                        <button class="ms-btn" onclick="editNick()" id="btn-edit-nick" style="display: none;">修改暱稱</button>
                     </div>
                 </div>
 
-                <div id="conn-panel" class="conn-panel" style="margin-top: 10px;">
+                <div id="conn-panel" class="conn-panel" style="margin-top: 6px;">
                     <div class="panel-label" style="display: flex; align-items: center; justify-content: space-between;">
                         <span>📡 房間設定</span>
                         <span id="conn-status" style="font-size: 10px; color: #999;">🔴 未連線</span>
                     </div>
-                    <div style="display: flex; gap: 8px; margin-bottom: 8px;">
-                        <button class="ms-btn primary" id="btn-host" onclick="startHost()"
-                            style="flex: 1;" disabled>建立房間</button>
-                        <button class="ms-btn" id="btn-copy" onclick="copyInvite()"
-                            style="display: none; padding: 0 10px; justify-content: center; align-items: center;"
-                            title="邀請連結">邀請連結</button>
-                        <button class="ms-btn" id="btn-leave" onclick="leaveRoom()"
-                            style="display: none; border-color: #e57373; padding: 0 10px; justify-content: center; align-items: center;"
-                            title="離開房間">離開房間</button>
+                    <div style="display: flex; gap: 8px; margin-bottom: 5px;">
+                        <button class="ms-btn primary" id="btn-host" onclick="startHost()" style="flex: 1;" disabled>建立房間</button>
+                        <button class="ms-btn" id="btn-copy" onclick="copyInvite()" style="display: none; padding: 0 10px; justify-content: center; align-items: center;" title="邀請連結">邀請連結</button>
+                        <button class="ms-btn" id="btn-leave" onclick="leaveRoom()" style="display: none; flex: 1; background: linear-gradient(to bottom, #ffcccc, #ff9999); color:#cc0000; border-color:#ff9999; font-size: 11px;" title="離開房間">離開房間</button>
                     </div>
                     <div class="join-box" id="join-row" style="display: flex; gap: 8px;">
                         <input type="text" id="join-id" placeholder="貼上房號 (ID)..." style="flex: 1;">
                         <button class="ms-btn" id="btn-join" onclick="startJoin()" disabled>加入房間</button>
-                        <button class="ms-btn" id="pip-btn" onclick="togglePiP()" style="font-size: 10px;">懸浮視窗</button>
+                        <button class="ms-btn pip-btn" id="pip-btn" onclick="togglePiP()" style="font-size: 10px;">懸浮視窗</button>
                     </div>
                 </div>
 
-                <div id="participants-container" class="participants-container" style="margin-top: 10px; border-top: 1px solid #eee; padding-top: 10px;">
+                <div id="participants-container" class="participants-container" style="margin-top: 6px; border-top: 1px solid #eee; padding-top: 6px;">
                     <div class="panel-label">
                         <span id="member-title">👥 房間成員 (0/8)</span>
                     </div>
@@ -1083,6 +1084,9 @@
                 conn.on('open', () => {
                     setStatus("🟢 已連線 (成員)", "#4caf50");
                     log(`已連接房主，申請加入...`, "info");
+                    
+                    getDoc().getElementById('btn-leave').style.display = "inline-flex";
+                    
                     conn.send({ type: 'JOIN', nick: myNick, color: myColor });
                 });
                 // 加入超時檢查 (10秒)
@@ -1378,40 +1382,35 @@
                         const isPass = el && el.classList.contains('state-pass');
                         const isDead = el && el.classList.contains('state-error');
 
-                        // 雙擊邏輯優先 (1s 內)
+                        // 1. 如果已經有標記，立即點擊 = 清空 (不需等待 1s)
+                        if (isPass || isDead) {
+                            e.preventDefault();
+                            if (isDead) onDoorRightClick(f, d);
+                            else onDoorClick(f, d);
+                            lastTouchTime = 0;
+                            return;
+                        }
+
+                        // 2. 如果是空格，處理雙擊 (1s 內變死路)
                         if (now - lastTouchTime < 1000 && now - lastTouchTime > 50) {
                             e.preventDefault();
                             if (mobileTimer) { clearTimeout(mobileTimer); mobileTimer = null; }
                             el.classList.remove('mobile-pending');
-                            
-                            // 雙擊：如果是通路則先清空通路，再標記為死路 (或切換死路)
-                            if (isPass) onDoorClick(f, d); 
                             onDoorRightClick(f, d); 
                             lastTouchTime = 0;
                             return;
                         }
 
-                        // 正常單擊流程
+                        // 3. 第一次點擊空格，立即標為通路，並開啟 1s 待定 window
                         lastTouchTime = now;
                         e.preventDefault(); 
+                        onDoorClick(f, d); // 立即標記通路
                         
                         el.classList.add('mobile-pending');
                         mobileTimer = setTimeout(() => {
-                            const stillWaiting = (Date.now() - lastTouchTime >= 1000);
-                            if (stillWaiting) {
-                                if (isPass || isDead) {
-                                    if (isDead) onDoorRightClick(f, d);
-                                    else onDoorClick(f, d);
-                                }
-                                lastTouchTime = 0;
-                            }
                             el.classList.remove('mobile-pending');
                             mobileTimer = null;
                         }, 1000);
-
-                        if (!isPass && !isDead) {
-                            onDoorClick(f, d);
-                        }
                     }, { passive: false });
 
                     door.onclick = (e) => onDoorClick(f, d);
@@ -1512,6 +1511,12 @@
             if (isHost) handleCommand(cmd);
             else syncMsg(cmd);
             log("已清空所有標記。", "warn");
+        }
+
+        function leaveRoom() {
+            if (confirm("確定要離開房間嗎？")) {
+                resetSettings(); // 直接呼叫重置設定，它會處理 peer.destroy() 與 UI 清空
+            }
         }
 
         // === 懸浮視窗 (PiP) ===
