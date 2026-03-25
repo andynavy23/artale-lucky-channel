@@ -758,26 +758,29 @@
             </div>
             <div class="modal-content">
                 <h3 style="margin-top: 0; color: var(--ms-dark-blue); border-bottom: 2px solid #ccc; padding-bottom: 5px;">🚀 快速入門</h3>
-                <p>1. <b>設定暱稱</b>：輸入名稱後點擊「確定暱稱」解鎖房間功能。</p>
-                <p>2. <b>加入或建立</b>：您可以貼上房號（ID）加入既有隊伍，或是點擊「建立房間」發起新局。</p>
+                <p>1. <b>設定暱稱與顏色</b>：進入房間後會自動分配顏色，您也可以在成員列表下方更換喜歡的顏色。</p>
+                <p>2. <b>加入或建立</b>：貼上房號加入隊伍，或點擊「建立房間」發起新局（上限 8 人）。</p>
                 
                 <h3 style="color: var(--ms-dark-blue); border-bottom: 2px solid #ccc; padding-bottom: 5px;">🎮 核心功能</h3>
                 <ul style="padding-left: 20px;">
-                    <li><b>同步標記</b>：點擊格子可同步顏色標記給所有隊友。</li>
-                    <li><b>邀請連結</b>：點擊按鈕一鍵複製包含房號的網址。</li>
-                    <li><b>系統日誌</b>：記錄進入/離開與連線狀態，方便除錯。</li>
-                    <li><b>重置設定</b>：清除房號並徹底重啟連線（切換房間用）。</li>
+                    <li><b>通路標記 (O)</b>：每層僅限標記一格，標記會顯示您的暱稱與顏色。</li>
+                    <li><b>共享死路 (✕)</b>：標記死路會同步給所有隊友。格子內的「彩色小點」代表是誰標記的，而「大紅 ✕」則是您自己的標記。</li>
+                    <li><b>實時同步</b>：所有成員的操作（標記、換色、離線）都會即時反映在畫面上。</li>
                 </ul>
 
-                <h3 style="color: var(--ms-dark-blue); border-bottom: 2px solid #ccc; padding-bottom: 5px;">📱 操作手冊</h3>
-                <p><b>左鍵 / 點擊</b>：標記正確軌跡路徑（通路）。</p>
-                <p><b>右鍵 / 手機雙擊</b>：標記死路（紅X）。此標記為**全隊共享**，您可以透過彩色小紅點辨識是誰標記的資訊。</p>
+                <h3 style="color: var(--ms-dark-blue); border-bottom: 2px solid #ccc; padding-bottom: 5px;">📱 操作指南</h3>
+                <p><b>電腦版</b>：左鍵標記通路 (O)，右鍵標記死路 (✕)。</p>
+                <p><b>手機版</b>：
+                    <br>• <b>單點空格</b>：標記為通路 (O)。
+                    <br>• <b>單點已標記格</b>：取消該格的標記。
+                    <br>• <b>快速雙擊</b>：將格子標記為死路 (✕)。若該格原本是通路，雙擊會自動幫您切換類型。
+                </p>
                 
                 <h3 style="color: var(--ms-dark-blue); border-bottom: 2px solid #ccc; padding-bottom: 5px;">🖼️ 懸浮視窗 (PiP)</h3>
-                <p>點擊「懸浮視窗」可將工具獨立出來並置頂在遊戲畫面（僅限電腦版 Chrome/Edge）。此模式下標記功能依然保持同步。</p>
+                <p>電腦版可點擊「懸浮視窗」讓工具置頂在遊戲畫面上方疊加，操作依然同步（手機版不支援）。</p>
                 
-                <h3 style="color: var(--ms-dark-blue); border-bottom: 2px solid #ccc; padding-bottom: 5px;">👑 房主功能</h3>
-                <p>房主可以點擊成員名字旁邊的「×」踢出使用者。當房間滿 8 人時，新成員將無法加入。</p>
+                <h3 style="color: var(--ms-dark-blue); border-bottom: 2px solid #ccc; padding-bottom: 5px;">👑 房間管理</h3>
+                <p>房主可點擊成員旁的「&times;」踢人。成員可點擊「離開房間」主動退出。全體斷線後房間會自動關閉。</p>
 
                 <p style="color: #d32f2f; font-size: 11px; margin-top: 15px;">⚠️ <b>小提醒</b>：P2P 受網路環境影響，若連線失敗或超時，請嘗試「重置設定」後重新建立或加入房間。</p>
             </div>
@@ -1382,32 +1385,43 @@
                         const isPass = el && el.classList.contains('state-pass');
                         const isDead = el && el.classList.contains('state-error');
 
-                        // 1. 如果已經有標記，立即點擊 = 清空 (不需等待 1s)
-                        if (isPass || isDead) {
-                            e.preventDefault();
-                            if (isDead) onDoorRightClick(f, d);
-                            else onDoorClick(f, d);
-                            lastTouchTime = 0;
-                            return;
-                        }
-
-                        // 2. 如果是空格，處理雙擊 (1s 內變死路)
+                        // 雙擊判定 (1s 內第二次觸碰)
                         if (now - lastTouchTime < 1000 && now - lastTouchTime > 50) {
                             e.preventDefault();
                             if (mobileTimer) { clearTimeout(mobileTimer); mobileTimer = null; }
                             el.classList.remove('mobile-pending');
+                            
+                            // 如果原本是通路標記，則先取消它
+                            if (isPass) onDoorClick(f, d);
+                            // 然後標記為死路 (如果是空格也會變死路)
                             onDoorRightClick(f, d); 
-                            lastTouchTime = 0;
+                            
+                            lastTouchTime = 0; // 重置雙擊計時
                             return;
                         }
 
-                        // 3. 第一次點擊空格，立即標為通路，並開啟 1s 待定 window
+                        // 第一次觸碰
                         lastTouchTime = now;
                         e.preventDefault(); 
-                        onDoorClick(f, d); // 立即標記通路
                         
+                        // 顯示待定狀態 (黃色邊框)
                         el.classList.add('mobile-pending');
+                        
+                        // 啟動 1s 判定定時器
                         mobileTimer = setTimeout(() => {
+                            const stillWaiting = (Date.now() - lastTouchTime >= 1000);
+                            if (stillWaiting) {
+                                // 1秒後如果沒有第二次觸碰 -> 執行單點動作
+                                if (isPass || isDead) {
+                                    // 已標記格：取消標記
+                                    if (isDead) onDoorRightClick(f, d);
+                                    else onDoorClick(f, d);
+                                } else {
+                                    // 空格：標記為通路 (Pass)
+                                    onDoorClick(f, d);
+                                }
+                                lastTouchTime = 0;
+                            }
                             el.classList.remove('mobile-pending');
                             mobileTimer = null;
                         }, 1000);
@@ -1515,7 +1529,7 @@
 
         function leaveRoom() {
             if (confirm("確定要離開房間嗎？")) {
-                resetSettings(); // 直接呼叫重置設定，它會處理 peer.destroy() 與 UI 清空
+                resetSettings(true); // 靜默重置，不彈出第二次確認
             }
         }
 
