@@ -772,8 +772,9 @@
                 <p><b>電腦版</b>：左鍵標記通路 (O)，右鍵標記死路 (✕)。</p>
                 <p><b>手機版</b>：
                     <br>• <b>單點空格</b>：標記為通路 (O)。
-                    <br>• <b>單點已標記格</b>：取消該格的標記。
-                    <br>• <b>快速雙擊</b>：將格子標記為死路 (✕)。若該格原本是通路，雙擊會自動幫您切換類型。
+                    <br>• <b>單點已標記格</b>：立即取消該格的標記。
+                    <br>• <b>快速雙擊</b>：將格子標記為死路 (✕)。
+                    <br>• <b>進階：通路轉死路</b>：點一下取消通路，接著快速雙擊 (0.5s 內) 即可變更為死路。
                 </p>
                 
                 <h3 style="color: var(--ms-dark-blue); border-bottom: 2px solid #ccc; padding-bottom: 5px;">🖼️ 懸浮視窗 (PiP)</h3>
@@ -1380,51 +1381,38 @@
                     let mobileTimer = null;
 
                     door.addEventListener('touchstart', (e) => {
+                        e.preventDefault();
                         const now = Date.now();
                         const el = getDoc().getElementById(`d-${f}-${d}`);
                         const isPass = el && el.classList.contains('state-pass');
                         const isDead = el && el.classList.contains('state-error');
 
-                        // 雙擊判定 (1s 內第二次觸碰)
-                        if (now - lastTouchTime < 1000 && now - lastTouchTime > 50) {
-                            e.preventDefault();
-                            if (mobileTimer) { clearTimeout(mobileTimer); mobileTimer = null; }
-                            el.classList.remove('mobile-pending');
-                            
-                            // 如果原本是通路標記，則先取消它
-                            if (isPass) onDoorClick(f, d);
-                            // 然後標記為死路 (如果是空格也會變死路)
-                            onDoorRightClick(f, d); 
-                            
-                            lastTouchTime = 0; // 重置雙擊計時
+                        // 1. 如果已經有標記，立即點擊 = 立即清空 (不再等待雙擊)
+                        if (isPass || isDead) {
+                            if (isDead) onDoorRightClick(f, d);
+                            else onDoorClick(f, d);
+                            lastTouchTime = 0; // 重置計時避免誤觸雙擊
                             return;
                         }
 
-                        // 第一次觸碰
+                        // 2. 處理雙擊判定 (0.5s 內第二次觸碰空格)
+                        if (now - lastTouchTime < 500 && now - lastTouchTime > 50) {
+                            if (mobileTimer) { clearTimeout(mobileTimer); mobileTimer = null; }
+                            el.classList.remove('mobile-pending');
+                            onDoorRightClick(f, d); 
+                            lastTouchTime = 0;
+                            return;
+                        }
+
+                        // 3. 第一次點擊空格，立即標為通路 (Pass)，並開啟 0.5s 待定 window
                         lastTouchTime = now;
-                        e.preventDefault(); 
+                        onDoorClick(f, d);
                         
-                        // 顯示待定狀態 (黃色邊框)
                         el.classList.add('mobile-pending');
-                        
-                        // 啟動 1s 判定定時器
                         mobileTimer = setTimeout(() => {
-                            const stillWaiting = (Date.now() - lastTouchTime >= 1000);
-                            if (stillWaiting) {
-                                // 1秒後如果沒有第二次觸碰 -> 執行單點動作
-                                if (isPass || isDead) {
-                                    // 已標記格：取消標記
-                                    if (isDead) onDoorRightClick(f, d);
-                                    else onDoorClick(f, d);
-                                } else {
-                                    // 空格：標記為通路 (Pass)
-                                    onDoorClick(f, d);
-                                }
-                                lastTouchTime = 0;
-                            }
                             el.classList.remove('mobile-pending');
                             mobileTimer = null;
-                        }, 1000);
+                        }, 500);
                     }, { passive: false });
 
                     door.onclick = (e) => onDoorClick(f, d);
@@ -1520,11 +1508,11 @@
 
 
         function resetAll() {
-            if (!confirm("確定要清空所有人的標記嗎？")) return;
+            // 移除 confirm 分散操作頻率
             const cmd = { type: 'CMD_RESET' };
             if (isHost) handleCommand(cmd);
             else syncMsg(cmd);
-            log("已清空所有標記。", "warn");
+            log("「清空所有標記」命令已發出。", "warn");
         }
 
         function leaveRoom() {
