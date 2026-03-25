@@ -704,7 +704,7 @@
                     <div class="join-box" id="join-row" style="display: flex; gap: 8px;">
                         <input type="text" id="join-id" placeholder="貼上房號 (ID)..." style="flex: 1;">
                         <button class="ms-btn" id="btn-join" onclick="startJoin()" disabled>加入房間</button>
-                        <button class="ms-btn pip-btn" id="pip-btn" onclick="togglePiP()" style="font-size: 10px;">懸浮視窗</button>
+                        <button class="ms-btn pip-btn" id="pip-btn" style="font-size: 10px;">懸浮視窗</button>
                     </div>
                 </div>
 
@@ -727,8 +727,7 @@
             </div>
 
             <div class="footer-tools">
-                <button class="ms-btn" id="btn-reset-all" style="flex: 1; border-color: #e57373; display: none;"
-                    onclick="resetAll()">清空所有標記</button>
+                <button class="ms-btn" id="btn-reset-all" style="flex: 1; border-color: #e57373; display: none;">清空所有標記</button>
                 <button class="ms-btn" id="btn-reset-settings" onclick="resetSettings()" style="flex: 1;">重置設定</button>
             </div>
 
@@ -936,7 +935,7 @@
 
         function editNick() {
             if (!confirm("修改暱稱將斷開目前連線，確定嗎？")) return;
-            leaveRoom();
+            leaveRoom(false);
             const ni = getDoc().getElementById('nick-input');
             if (ni) {
                 ni.disabled = false;
@@ -957,7 +956,9 @@
             }
         }
 
-        function leaveRoom() {
+        function leaveRoom(promptConfirm) {
+            if (promptConfirm !== false && !confirm("確定要離開房間嗎？")) return;
+            
             if (peer) {
                 peer.destroy();
                 peer = null;
@@ -1133,7 +1134,7 @@
                     // 成員檢測到房主斷線
                     if (conn.peer === hostPeerId) {
                         log("房主已離開。", "error");
-                        leaveRoom();
+                        leaveRoom(false);
                     }
                 }
             });
@@ -1385,27 +1386,34 @@
                         const now = Date.now();
                         const el = getDoc().getElementById(`d-${f}-${d}`);
                         const isPass = el && el.classList.contains('state-pass');
-                        const isDead = el && el.classList.contains('state-error');
+                        const hasMyDead = el && el.classList.contains('my-dead');
+                        const isDoubleClick = now - lastTouchTime < 500 && now - lastTouchTime > 50;
 
-                        // 1. 如果已經有標記，立即點擊 = 立即清空 (不再等待雙擊)
-                        if (isPass || isDead) {
-                            if (isDead) onDoorRightClick(f, d);
-                            else onDoorClick(f, d);
-                            lastTouchTime = 0; // 重置計時避免誤觸雙擊
-                            return;
-                        }
-
-                        // 2. 處理雙擊判定 (0.5s 內第二次觸碰空格)
-                        if (now - lastTouchTime < 500 && now - lastTouchTime > 50) {
+                        // 優先處理雙擊判定 (0.5s 內第二次觸碰)
+                        if (isDoubleClick) {
                             if (mobileTimer) { clearTimeout(mobileTimer); mobileTimer = null; }
                             el.classList.remove('mobile-pending');
                             onDoorRightClick(f, d); 
-                            lastTouchTime = 0;
+                            lastTouchTime = 0; // 重置避開連續觸發
                             return;
                         }
 
-                        // 3. 第一次點擊空格，立即標為通路 (Pass)，並開啟 0.5s 待定 window
                         lastTouchTime = now;
+
+                        // 如果是通路 (不管是誰的，點擊=嘗試切換/取消)
+                        if (isPass) {
+                            onDoorClick(f, d);
+                            return;
+                        }
+                        
+                        // 如果有自己的死路，單點 = 取消自己的死路
+                        if (hasMyDead) {
+                            onDoorRightClick(f, d);
+                            return;
+                        }
+
+                        // 否則 (!isPass && !hasMyDead)，包含空地或只有別人的死路：
+                        // 單次點擊都是要標記為通路 (Pass)，並開啟 0.5s 待定 window 用於判斷雙擊
                         onDoorClick(f, d);
                         
                         el.classList.add('mobile-pending');
@@ -1515,11 +1523,7 @@
             log("「清空所有標記」命令已發出。", "warn");
         }
 
-        function leaveRoom() {
-            if (confirm("確定要離開房間嗎？")) {
-                resetSettings(true); // 靜默重置，不彈出第二次確認
-            }
-        }
+        // 已整合至統整離開房間函式
 
         // === 懸浮視窗 (PiP) ===
         async function togglePiP() {
@@ -1571,6 +1575,8 @@
         }
 
         // === 啟動 ===
+        document.getElementById('btn-reset-all').addEventListener('click', resetAll);
+        document.getElementById('pip-btn').addEventListener('click', togglePiP);
         renderGrid();
         const initialHash = window.location.hash.substring(1);
         if (initialHash) {
