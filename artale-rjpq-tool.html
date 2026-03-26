@@ -630,6 +630,9 @@
             .container.pip-active #btn-reset-settings {
                 display: none !important;
             }
+            .container.pip-active #btn-summary {
+                display: none !important;
+            }
 
             .container.pip-active .conn-panel {
                 margin: 0 !important;
@@ -1049,10 +1052,9 @@
                     <span class="modal-close" onclick="closeModal('summary-modal')">&times;</span>
                 </div>
                 <div class="modal-content">
-                    <div style="font-size: 11px; color: #d32f2f; margin-bottom: 8px; font-weight: bold;">
-                        ⚠️ 總覽隨時會變動，記得手動重新總覽。<br>
-                        ℹ️ 若該樓層有三個死路且未標記通路，剩下的便是第四人的通路；若已有三個通路，剩下的便是第四人通路。無從判斷則顯示為 0。<br>
-                        (點擊成員名稱可複製路線)
+                    <div style="font-size: 11px; color: #333; margin-bottom: 8px; line-height: 1.5;">
+                        <span style="color: #d32f2f; font-weight: bold;">⚠️ 總覽隨時會變動，記得手動更換標記後重新打開總覽。</span><br>
+                        <b>ℹ️ 自動判定規則：</b>若該樓層有一人標記了 3 個不同門的死路，剩下 1 門即為該人通路；若該樓層有三個死路且未標記通路，剩下的便是第四人的通路；若已有三個通路，剩下的便是第四人通路。無從判斷則顯示為 0。
                     </div>
                     <div id="summary-content" style="background:#f9f9f9; border:1px solid #ccc; padding:8px; border-radius:4px; max-height:200px; overflow-y:auto; margin-bottom: 8px;">
                     </div>
@@ -1664,7 +1666,12 @@
                     tag.style.color = s.color;
 
                     const icon = s.isHost ? "👑 " : "👤 ";
-                    tag.innerHTML = icon + s.nick;
+                    const isMe = s.index === mySlotIndex ? " (我)" : "";
+                    tag.innerHTML = icon + s.nick + isMe;
+                    if (s.index === mySlotIndex) {
+                        tag.style.fontWeight = "900";
+                        tag.style.textDecoration = "underline";
+                    }
 
                     if (isHost && !s.isHost) {
                         const kBtn = getDoc().createElement("span");
@@ -2035,7 +2042,23 @@
                     activeSlots.forEach(s => {
                         let sIdx = s.index;
                         if (!slotHasPass[sIdx]) {
-                            // If a door has exactly 3 dead markers from OTHER members, and no pass marker, it's S's pass!
+                            // Rule C: Did S mark exactly 3 different doors as dead on this floor?
+                            let sDeadDoors = [];
+                            let sLastUnmarked = -1;
+                            for (let d = 0; d < 4; d++) {
+                                if (s.deadEndMarkers.some(m => m.f === f && m.d === d)) {
+                                    sDeadDoors.push(d);
+                                } else {
+                                    sLastUnmarked = d;
+                                }
+                            }
+                            if (sDeadDoors.length === 3 && sLastUnmarked !== -1) {
+                                slotHasPass[sIdx] = sLastUnmarked + 1;
+                                doorHasPass[sLastUnmarked] = true; // Implicitly taken
+                                return; // Done for this slot
+                            }
+
+                            // Rule A: If a door has exactly 3 dead markers from OTHER members, and no pass marker, it's S's pass!
                             for (let d = 0; d < 4; d++) {
                                 if (!doorHasPass[d]) {
                                     let deadSlotsOnD = activeSlots.filter(s2 => s2.deadEndMarkers.some(m => m.f === f && m.d === d));
@@ -2085,28 +2108,42 @@
 
                     let div = getDoc().createElement("div");
                     div.style.marginBottom = "6px";
-                    
-                    let nameLink = getDoc().createElement("a");
-                    nameLink.href = "#";
-                    nameLink.style.color = s.color || "#000";
-                    nameLink.style.fontWeight = "bold";
-                    nameLink.style.textDecoration = "none";
-                    nameLink.innerText = `[複製] ${s.nick}`;
-                    nameLink.onclick = (e) => {
-                        e.preventDefault();
-                        navigator.clipboard.writeText(routeStr).then(() => {
-                            alert(`已複製 ${s.nick} 的路線: \n${routeStr}`);
-                        });
-                    };
+                    div.style.display = "flex";
+                    div.style.justifyContent = "space-between";
+                    div.style.alignItems = "center";
+                    div.style.borderBottom = "1px dashed #eee";
+                    div.style.paddingBottom = "4px";
+
+                    let leftGroup = getDoc().createElement("div");
+
+                    let nameTag = getDoc().createElement("span");
+                    nameTag.style.color = s.color || "#000";
+                    nameTag.style.fontWeight = "bold";
+                    const isMe = s.index === mySlotIndex ? " (我)" : "";
+                    nameTag.innerText = s.nick + isMe;
 
                     let res = getDoc().createElement("span");
                     res.innerText = ` : ${routeStr}`;
                     res.style.fontFamily = "monospace";
                     res.style.color = "#333";
                     res.style.fontWeight = "bold";
+                    
+                    leftGroup.appendChild(nameTag);
+                    leftGroup.appendChild(res);
 
-                    div.appendChild(nameLink);
-                    div.appendChild(res);
+                    let copyBtn = getDoc().createElement("button");
+                    copyBtn.className = "ms-btn";
+                    copyBtn.style.fontSize = "10px";
+                    copyBtn.style.padding = "2px 8px";
+                    copyBtn.innerText = "複製";
+                    copyBtn.onclick = () => {
+                        navigator.clipboard.writeText(routeStr).then(() => {
+                            alert(`已複製 ${s.nick} 的路線: \n${routeStr}`);
+                        });
+                    };
+
+                    div.appendChild(leftGroup);
+                    div.appendChild(copyBtn);
                     summaryContent.appendChild(div);
                 });
             }
