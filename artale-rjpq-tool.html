@@ -322,6 +322,13 @@
                 text-shadow: 1px 1px 0px rgba(0, 0, 0, 0.5);
             }
 
+            .ms-btn.danger {
+                background: linear-gradient(to bottom, #ef5350 0%, #c62828 100%);
+                color: white;
+                border-color: #b71c1c;
+                text-shadow: 1px 1px 0px rgba(0, 0, 0, 0.5);
+            }
+
             .ms-btn:disabled {
                 opacity: 0.5;
                 cursor: not-allowed;
@@ -773,19 +780,12 @@
                                 邀請連結
                             </button>
                             <button
-                                class="ms-btn"
+                                class="ms-btn danger"
                                 id="btn-leave"
                                 onclick="leaveRoom()"
                                 style="
                                     display: none;
                                     flex: 1;
-                                    background: linear-gradient(
-                                        to bottom,
-                                        #ffcccc,
-                                        #ff9999
-                                    );
-                                    color: #cc0000;
-                                    border-color: #ff9999;
                                     font-size: 11px;
                                 "
                                 title="離開房間"
@@ -860,13 +860,21 @@
                     <!-- 由 JS 渲染 -->
                 </div>
 
-                <div class="footer-tools">
+                <div class="footer-tools" style="flex-wrap: wrap; gap: 8px;">
                     <button
-                        class="ms-btn"
+                        class="ms-btn danger"
                         id="btn-reset-all"
-                        style="flex: 1; border-color: #e57373; display: none"
+                        style="flex: 1; display: none"
                     >
                         清空所有標記
+                    </button>
+                    <button
+                        class="ms-btn primary"
+                        id="btn-summary"
+                        onclick="openSummary()"
+                        style="flex: 1; display: none"
+                    >
+                        路線總覽
                     </button>
                     <button
                         class="ms-btn"
@@ -964,17 +972,16 @@
                     </h3>
                     <ul style="padding-left: 20px">
                         <li>
-                            <b>通路標記 (O)</b
-                            >：每層僅限標記一格，標記會顯示您的暱稱與顏色。
+                            <b>通路標記 (O)</b>：每層僅限標記一格，標記會顯示您的暱稱與顏色。
                         </li>
                         <li>
-                            <b>共享死路 (✕)</b
-                            >：標記死路會同步給所有隊友。格子內的「彩色小點」代表是誰標記的，而「大紅
-                            ✕」則是您自己的標記。
+                            <b>共享死路 (✕)</b>：格子內的「彩色小點」代表是誰標記的死路。若該格同時標記了通路，為避免畫面雜亂，會優先顯示通路並暫時隱藏死路小點。
                         </li>
                         <li>
-                            <b>實時同步</b
-                            >：所有成員的操作（標記、換色、離線）都會即時反映在畫面上。
+                            <b>路線總覽</b>：開啟總覽視窗，系統會根據當下狀態自動推導每位成員的通關數字路線，點擊成員名稱即可一鍵複製。
+                        </li>
+                        <li>
+                            <b>實時同步</b>：所有成員的操作（標記、換色、離線）都會即時反映在畫面上。
                         </li>
                     </ul>
 
@@ -989,11 +996,9 @@
                     </h3>
                     <p><b>電腦版</b>：左鍵標記通路 (O)，右鍵標記死路 (✕)。</p>
                     <p>
-                        <b>手機版</b>： <br />• <b>單點空格</b>：標記為通路
-                        (O)。 <br />• <b>單點已標記格</b>：立即取消該格的標記。
+                        <b>手機版</b>： <br />• <b>單點空格</b>：標記為通路 (O)。 <br />• <b>單點已標記通路</b>：立即取消該格的通路標記。
                         <br />• <b>快速雙擊</b>：將格子標記為死路 (✕)。 <br />•
-                        <b>進階：通路轉死路</b>：點一下取消通路，接著快速雙擊
-                        (0.5s 內) 即可變更為死路。
+                        <b>取消死路</b>：對著自己的死路標記再次快速雙擊即可取消。
                     </p>
 
                     <h3
@@ -1032,6 +1037,26 @@
                         ⚠️ <b>小提醒</b>：P2P
                         受網路環境影響，若連線失敗或超時，請嘗試「重置設定」後重新建立或加入房間。
                     </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 路線總覽 Modal -->
+        <div class="modal-overlay" id="summary-modal" onclick="closeModal('summary-modal')">
+            <div class="modal" onclick="event.stopPropagation()">
+                <div class="modal-header">
+                    <span>📜 路線總覽</span>
+                    <span class="modal-close" onclick="closeModal('summary-modal')">&times;</span>
+                </div>
+                <div class="modal-content">
+                    <div style="font-size: 11px; color: #d32f2f; margin-bottom: 8px; font-weight: bold;">
+                        ⚠️ 總覽隨時會變動，記得手動重新總覽。<br>
+                        ℹ️ 若該樓層有三個死路且未標記通路，剩下的便是第四人的通路；若已有三個通路，剩下的便是第四人通路。無從判斷則顯示為 0。<br>
+                        (點擊成員名稱可複製路線)
+                    </div>
+                    <div id="summary-content" style="background:#f9f9f9; border:1px solid #ccc; padding:8px; border-radius:4px; max-height:200px; overflow-y:auto; margin-bottom: 8px;">
+                    </div>
+                    <button class="ms-btn primary" onclick="generateSummary()" style="width: 100%; margin-top: 5px;">重新總覽</button>
                 </div>
             </div>
         </div>
@@ -1246,6 +1271,7 @@
                 getDoc().getElementById("btn-leave").style.display = "none";
                 getDoc().getElementById("btn-copy").style.display = "none";
                 getDoc().getElementById("btn-reset-all").style.display = "none";
+                getDoc().getElementById("btn-summary").style.display = "none";
                 getDoc().getElementById("participant-list").innerHTML = "";
                 getDoc().getElementById("member-title").innerText =
                     "👥 房間成員 (0/8)";
@@ -1331,6 +1357,8 @@
                         "inline-flex";
                     getDoc().getElementById("btn-reset-all").style.display =
                         "inline-flex";
+                    getDoc().getElementById("btn-summary").style.display =
+                        "inline-flex";
 
                     getDoc().getElementById("btn-host").disabled = true;
                     getDoc().getElementById("btn-join").disabled = true;
@@ -1368,6 +1396,8 @@
                         log(`已連接房主，申請加入...`, "info");
 
                         getDoc().getElementById("btn-leave").style.display =
+                            "inline-flex";
+                        getDoc().getElementById("btn-summary").style.display =
                             "inline-flex";
 
                         conn.send({
@@ -1950,20 +1980,8 @@
                         });
 
                     // 複製樣式
-                    Array.from(document.styleSheets).forEach((styleSheet) => {
-                        try {
-                            const cssRules = Array.from(styleSheet.cssRules)
-                                .map((rule) => rule.cssText)
-                                .join("");
-                            const style = document.createElement("style");
-                            style.textContent = cssRules;
-                            pipWindow.document.head.appendChild(style);
-                        } catch (e) {
-                            const link = document.createElement("link");
-                            link.rel = "stylesheet";
-                            link.href = styleSheet.href;
-                            pipWindow.document.head.appendChild(link);
-                        }
+                    Array.from(document.querySelectorAll("style, link[rel='stylesheet']")).forEach(el => {
+                        pipWindow.document.head.appendChild(el.cloneNode(true));
                     });
 
                     // 移動內容
@@ -1982,6 +2000,115 @@
                     console.error(err);
                     alert("無法開啟懸浮視窗。");
                 }
+            }
+
+            function openSummary() {
+                openModal('summary-modal');
+                generateSummary();
+            }
+
+            function generateSummary() {
+                const summaryContent = getDoc().getElementById("summary-content");
+                if (!summaryContent) return;
+                summaryContent.innerHTML = "";
+                
+                const activeSlots = gameState.slots.filter(s => s && s.connected);
+                if (activeSlots.length === 0) {
+                    summaryContent.innerText = "目前無成員在房間內。";
+                    return;
+                }
+
+                let floorStatus = [];
+                for (let f = 0; f < 10; f++) {
+                    let doorHasPass = [false,false,false,false];
+                    let slotHasPass = {};
+
+                    for (let d = 0; d < 4; d++) {
+                        let passSlot = activeSlots.find(s => s.passMarkers.some(m => m.f === f && m.d === d));
+                        if (passSlot) {
+                            doorHasPass[d] = true;
+                            slotHasPass[passSlot.index] = d + 1;
+                        }
+                    }
+
+                    // Rule Deduction per slot:
+                    activeSlots.forEach(s => {
+                        let sIdx = s.index;
+                        if (!slotHasPass[sIdx]) {
+                            // If a door has exactly 3 dead markers from OTHER members, and no pass marker, it's S's pass!
+                            for (let d = 0; d < 4; d++) {
+                                if (!doorHasPass[d]) {
+                                    let deadSlotsOnD = activeSlots.filter(s2 => s2.deadEndMarkers.some(m => m.f === f && m.d === d));
+                                    if (deadSlotsOnD.length >= 3) {
+                                        let sHasDeadHere = deadSlotsOnD.some(s2 => s2.index === sIdx);
+                                        if (!sHasDeadHere) {
+                                            slotHasPass[sIdx] = d + 1;
+                                            doorHasPass[d] = true; // Mark it as taken implicitly
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    });
+
+                    // Rule B pass: If 3 unique doors are taken, the remaining member gets the 4th door!
+                    let membersWithoutPass = [];
+                    let doorsWithPass = new Set();
+                    activeSlots.forEach(s => {
+                        if (slotHasPass[s.index]) {
+                            doorsWithPass.add(slotHasPass[s.index] - 1);
+                        } else {
+                            membersWithoutPass.push(s);
+                        }
+                    });
+                    if (doorsWithPass.size === 3 && membersWithoutPass.length === 1) {
+                        for (let d = 0; d < 4; d++) {
+                            if (!doorsWithPass.has(d)) {
+                                slotHasPass[membersWithoutPass[0].index] = d + 1;
+                                break;
+                            }
+                        }
+                    }
+
+                    floorStatus[f] = slotHasPass;
+                }
+
+                // Render per slot
+                activeSlots.forEach(s => {
+                    let routeArr = [];
+                    for (let f = 9; f >= 0; f--) {
+                        let door = floorStatus[f][s.index] || 0;
+                        routeArr.push(door);
+                    }
+                    let routeStr = routeArr.join("-");
+
+                    let div = getDoc().createElement("div");
+                    div.style.marginBottom = "6px";
+                    
+                    let nameLink = getDoc().createElement("a");
+                    nameLink.href = "#";
+                    nameLink.style.color = s.color || "#000";
+                    nameLink.style.fontWeight = "bold";
+                    nameLink.style.textDecoration = "none";
+                    nameLink.innerText = `[複製] ${s.nick}`;
+                    nameLink.onclick = (e) => {
+                        e.preventDefault();
+                        navigator.clipboard.writeText(routeStr).then(() => {
+                            alert(`已複製 ${s.nick} 的路線: \n${routeStr}`);
+                        });
+                    };
+
+                    let res = getDoc().createElement("span");
+                    res.innerText = ` : ${routeStr}`;
+                    res.style.fontFamily = "monospace";
+                    res.style.color = "#333";
+                    res.style.fontWeight = "bold";
+
+                    div.appendChild(nameLink);
+                    div.appendChild(res);
+                    summaryContent.appendChild(div);
+                });
             }
 
             // === 啟動 ===
